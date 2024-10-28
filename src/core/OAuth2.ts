@@ -1,11 +1,11 @@
-interface RefreshApiResponse {
+type RefreshApiResponse = {
     error_code?: string;
     access_token: string;
     refresh_token: string;
     expires_in: number;
 }
 
-import type { YTDL_OAuth2ClientData, YTDL_OAuth2Credentials, YTDL_ProxyOptions } from '@/types/Options';
+import type { YTDL_OAuth2ClientData, YTDL_OAuth2Credentials } from '@/types/Options';
 
 import { Platform } from '@/platforms/Platform';
 
@@ -50,7 +50,7 @@ export class OAuth2 {
         if (this.shouldRefreshToken()) {
             try {
                 this.refreshAccessToken().finally(() => this.availableTokenCheck());
-            } catch (err) {}
+            } catch {}
         } else {
             this.availableTokenCheck();
         }
@@ -88,7 +88,7 @@ export class OAuth2 {
         this.isEnabled = false;
     }
 
-    private async getClientData(): Promise<YTDL_OAuth2ClientData | null> {
+    async getClientData(): Promise<YTDL_OAuth2ClientData | null> {
         const OAUTH2_CACHE = (await FileCache.get<YTDL_OAuth2Credentials>('oauth2')) || ({} as any);
 
         if (OAUTH2_CACHE.clientData?.clientId && OAUTH2_CACHE.clientData?.clientSecret) {
@@ -179,7 +179,7 @@ export class OAuth2 {
                     refresh_token: this.refreshToken,
                     grant_type: 'refresh_token',
                 },
-                REFRESH_API_RESPONSE = await fetch(Url.getRefreshTokenApiUrl(), {
+                REFRESH_API_RESPONSE = await Fetcher.fetch(Url.getTokenApiUrl(), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -210,5 +210,123 @@ export class OAuth2 {
 
     getCredentials(): YTDL_OAuth2Credentials {
         return this.credentials;
+    }
+
+    static async createOAuth2Credentials(userOperationCallback?: (data: { verificationUrl: string; code: string }) => void): Promise<YTDL_OAuth2Credentials | null> {
+        return new Promise(async (resolve) => {
+            const CACHE = await FileCache.get<YTDL_OAuth2Credentials>('oauth2');
+
+            console.log(CACHE)
+            if (CACHE) {
+                return resolve(CACHE);
+            }
+
+            const OAUTH2 = new OAuth2(null);
+
+            function errorHandle() {
+                resolve(null);
+            }
+
+            function generateUuidV4(): string {
+                return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                    const r = (Math.random() * 16) | 0,
+                        v = c == 'x' ? r : (r & 0x3) | 0x8;
+                    return v.toString(16);
+                });
+            }
+
+            OAUTH2.getClientData()
+                .then((data) => {
+                    if (!data) {
+                        return resolve(null);
+                    }
+
+                    const { clientId, clientSecret } = data;
+
+                    Fetcher.fetch(Url.getDeviceCodeApiUrl(), {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ client_id: clientId, scope: 'http://gdata.youtube.com https://www.googleapis.com/auth/youtube-paid-content', device_id: generateUuidV4(), device_model: 'ytlr::' }),
+                    })
+                        .then((response) => response.json())
+                        .then((deviceApiResponse) => {
+                            if (deviceApiResponse.error || deviceApiResponse.error_code) {
+                                Logger.error('[ OAuth2 ]: The OAuth2 credential could not be generated because of failure to obtain the device code.');
+                                return errorHandle();
+                            }
+
+                            Logger.info(`[ OAuth2 ]: Please open the following URL and follow the instructions: <debug>${deviceApiResponse.verification_url}</debug>`);
+                            Logger.info(`[ OAuth2 ]: Please enter the following code: <warning>${deviceApiResponse.user_code}</warning>`);
+
+                            if (typeof userOperationCallback === 'function') {
+                                userOperationCallback({ verificationUrl: deviceApiResponse.verification_url, code: deviceApiResponse.user_code });
+                            }
+
+                            const BODY = JSON.stringify({
+                                    client_id: clientId,
+                                    client_secret: clientSecret,
+                                    code: deviceApiResponse.device_code,
+                                    grant_type: 'http://oauth.net/grant_type/device/1.0',
+                                }),
+                                REQUEST_INTERVAL = setInterval(async () => {
+                                    const RESPONSE = await (
+                                        await Fetcher.fetch(Url.getTokenApiUrl(), {
+                                            method: 'POST',
+                                            headers: {
+                                                'Content-Type': 'application/json',
+                                            },
+                                            body: BODY,
+                                        })
+                                    ).json();
+
+                                    if (RESPONSE.error) {
+                                        switch (RESPONSE.error) {
+                                            case 'authorization_pending':
+                                            case 'slow_down':
+                                                Logger.debug('[ OAuth2 ]: Polling for access token...');
+                                                break;
+                                            case 'access_denied': {
+                                                Logger.error('[ OAuth2 ]: Generation of OAuth2 credentials failed because access to the API was forbidden.');
+                                                resolve(null);
+                                                clearInterval(REQUEST_INTERVAL);
+                                                break;
+                                            }
+                                            case 'expired_token': {
+                                                Logger.error('[ OAuth2 ]: OAuth2 credential generation failed because the device code has expired.');
+                                                resolve(null);
+                                                clearInterval(REQUEST_INTERVAL);
+                                                break;
+                                            }
+                                            default: {
+                                                Logger.error('[ OAuth2 ]: OAuth2 credential generation failed because the API responded with the following error code:' + RESPONSE.error);
+                                                resolve(null);
+                                                clearInterval(REQUEST_INTERVAL);
+                                                break;
+                                            }
+                                        }
+
+                                        return;
+                                    }
+
+                                    Logger.debug(`[ OAuth2 ]: Success to obtain access token: <success>${RESPONSE.access_token}</success>`);
+
+                                    resolve({
+                                        accessToken: RESPONSE.access_token,
+                                        refreshToken: RESPONSE.refresh_token,
+                                        expiryDate: new Date(Date.now() + RESPONSE.expires_in * 1000).toISOString(),
+                                        clientData: {
+                                            clientId,
+                                            clientSecret,
+                                        },
+                                    });
+                                    clearInterval(REQUEST_INTERVAL);
+                                }, deviceApiResponse.interval * 1000);
+                        })
+                        .catch(errorHandle);
+                })
+                .catch(errorHandle);
+        });
     }
 }

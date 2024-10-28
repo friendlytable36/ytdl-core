@@ -1,7 +1,3 @@
-import { Readable } from 'readable-stream';
-
-import { Platform } from '@/platforms/Platform';
-
 import type { YT_Itag, YT_MicroformatRenderer, YT_NextApiResponse, YT_PlayerApiResponse, YT_Quality, YT_QualityLabel, YT_StreamingAdaptiveFormat, YT_Thumbnail } from './YouTube';
 import type { YTDL_ClientTypes } from './Clients';
 import type { YTDL_DownloadOptions, YTDL_GetInfoOptions } from './Options';
@@ -121,10 +117,10 @@ export type YTDL_VideoFormat = {
     originalData?: YT_StreamingAdaptiveFormat;
 };
 
-export type YTDL_VideoInfo = {
+export type YTDL_VideoInfo<F = YTDL_VideoFormat> = {
     videoDetails: YTDL_VideoDetails;
     relatedVideos: Array<YTDL_RelatedVideo>;
-    formats: Array<YTDL_VideoFormat>;
+    formats: Array<F>;
     full: boolean;
     live_chunk_readahead?: number;
 
@@ -160,5 +156,3 @@ export type YTDL_Constructor = Omit<YTDL_DownloadOptions, 'format'> & {
     disableInitialSetup?: boolean;
 };
 
-export class YTDL_DefaultStreamType extends Platform.getShim().polyfills.ReadableStream<any> {}
-export class YTDL_NodejsStreamType extends Readable {}

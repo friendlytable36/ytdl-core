@@ -1,6 +1,11 @@
-import UAParser from 'ua-parser-js';
+type InitializationOptions = {
+    disableInitialSetup?: boolean;
+    poToken?: string;
+    visitorData?: string;
+    oauth2Credentials?: YTDL_OAuth2Credentials | null;
+};
 
-import type { YTDL_Constructor, YTDL_DownloadOptions, YTDL_GetInfoOptions, YTDL_VideoInfo, YTDL_OAuth2Credentials, YTDL_DefaultStreamType, YTDL_NodejsStreamType } from './types';
+import type { YTDL_Constructor, YTDL_DownloadOptions, YTDL_GetInfoOptions, YTDL_VideoInfo, YTDL_OAuth2Credentials, YTDL_ProxyOptions, YT_StreamingAdaptiveFormat } from './types';
 import type { InternalDownloadOptions } from './core/types';
 
 import { Platform } from './platforms/Platform';
@@ -9,48 +14,39 @@ import { download, downloadFromInfo } from './core/Download';
 import { getBasicInfo, getFullInfo } from './core/Info';
 import { getHtml5Player } from './core/Info/parser/Html5Player';
 import { OAuth2 } from './core/OAuth2';
-import { PlatformError } from './core/errors';
 
 import { Url } from './utils/Url';
 import { FormatUtils } from './utils/Format';
 import { VERSION } from './utils/Constants';
 import { Logger } from './utils/Log';
+import { Signature } from './core/Signature';
 
 const SHIM = Platform.getShim(),
     Cache = SHIM.cache,
     FileCache = SHIM.fileCache;
 
-function isNodeVersionOk(version: string): boolean {
-    return parseInt(version.replace('v', '').split('.')[0]) >= 16;
-}
-
-function isBrowserVersionOk(userAgent: string): boolean {
-    const PARSED = new UAParser(userAgent).getBrowser(),
-        VERSION = parseInt((PARSED.version || '').split('.')[0]),
-        BROWSER_NAME = PARSED.name?.toLocaleLowerCase() || '';
-
-    if (BROWSER_NAME.includes('chrome')) {
-        return VERSION >= 76;
-    } else if (BROWSER_NAME.includes('edge')) {
-        return VERSION >= 80;
-    } else if (BROWSER_NAME.includes('firefox')) {
-        return VERSION >= 78;
-    } else if (BROWSER_NAME.includes('safari')) {
-        return VERSION >= 14;
-    } else if (BROWSER_NAME.includes('brave')) {
-        return VERSION >= 1;
-    } else if (BROWSER_NAME.includes('opera')) {
-        return VERSION >= 63;
-    } else {
-        Logger.debug('[ BrowserCheck ]: The specified UserAgent did not match the following browsers. (Chrome, Edge, FireFox, Safari, Brave, Opera)');
-    }
-
-    return true;
-}
-
 class YtdlCore {
     public static chooseFormat = FormatUtils.chooseFormat;
     public static filterFormats = FormatUtils.filterFormats;
+
+    public static decipherFormat = function (format: YT_StreamingAdaptiveFormat): Promise<YT_StreamingAdaptiveFormat | null> {
+        return new Promise(async (resolve) => {
+            const HTML5_PLAYER_DATA = await getHtml5Player({});
+
+            if (!HTML5_PLAYER_DATA.body) {
+                return resolve(null);
+            }
+
+            const SIGNATURE = new Signature();
+
+            await SIGNATURE.getDecipherFunctions(HTML5_PLAYER_DATA.id, HTML5_PLAYER_DATA.body);
+            await SIGNATURE.getNTransform(HTML5_PLAYER_DATA.id, HTML5_PLAYER_DATA.body);
+
+            resolve(SIGNATURE.decipherFormat(format));
+        });
+    };
+
+    public static createOAuth2Credentials = OAuth2.createOAuth2Credentials;
 
     public static validateID = Url.validateID;
     public static validateURL = Url.validateURL;
@@ -70,6 +66,7 @@ class YtdlCore {
     public includesRelatedVideo: YTDL_DownloadOptions['includesRelatedVideo'] = true;
     public clients: YTDL_DownloadOptions['clients'];
     public disableDefaultClients: YTDL_DownloadOptions['disableDefaultClients'] = false;
+    public disableRetryRequest: YTDL_DownloadOptions['disableRetryRequest'] = false;
     public oauth2: OAuth2 | null = null;
     public parsesHLSFormat: YTDL_DownloadOptions['parsesHLSFormat'] = false;
     public originalProxy: YTDL_DownloadOptions['originalProxy'];
@@ -87,13 +84,12 @@ class YtdlCore {
     public highWaterMark: YTDL_DownloadOptions['highWaterMark'] | undefined;
     public IPv6Block: YTDL_DownloadOptions['IPv6Block'] | undefined;
     public dlChunkSize: YTDL_DownloadOptions['dlChunkSize'] | undefined;
-    public streamType: YTDL_DownloadOptions['streamType'] = 'default';
 
     /* Metadata */
     public version = VERSION;
 
     /* Constructor */
-    constructor({ hl, gl, rewriteRequest, poToken, disablePoTokenAutoGeneration, visitorData, includesPlayerAPIResponse, includesNextAPIResponse, includesOriginalFormatData, includesRelatedVideo, clients, disableDefaultClients, oauth2Credentials, parsesHLSFormat, originalProxy, quality, filter, excludingClients, includingClients, range, begin, liveBuffer, highWaterMark, IPv6Block, dlChunkSize, streamType, disableBasicCache, disableFileCache, fetcher, logDisplay, noUpdate, disableInitialSetup }: YTDL_Constructor = {}) {
+    constructor({ hl, gl, rewriteRequest, poToken, disablePoTokenAutoGeneration, visitorData, includesPlayerAPIResponse, includesNextAPIResponse, includesOriginalFormatData, includesRelatedVideo, clients, disableDefaultClients, disableRetryRequest, oauth2Credentials, parsesHLSFormat, originalProxy, quality, filter, excludingClients, includingClients, range, begin, liveBuffer, highWaterMark, IPv6Block, dlChunkSize, disableBasicCache, disableFileCache, fetcher, logDisplay, noUpdate, disableInitialSetup }: YTDL_Constructor = {}) {
         const SHIM = Platform.getShim();
 
         /* Other Options */
@@ -129,12 +125,15 @@ class YtdlCore {
         this.clients = clients || undefined;
         this.disableDefaultClients = disableDefaultClients ?? false;
         this.parsesHLSFormat = parsesHLSFormat ?? false;
+        this.disableRetryRequest = disableRetryRequest ?? false;
 
         this.originalProxy = originalProxy || undefined;
         if (this.originalProxy) {
+            const QUERY_NAME = this.originalProxy.urlQueryName || 'url';
+
             Logger.debug(`<debug>"${this.originalProxy.base}"</debug> is used for <blue>API requests</blue>.`);
             Logger.debug(`<debug>"${this.originalProxy.download}"</debug> is used for <blue>video downloads</blue>.`);
-            Logger.debug(`The query name <debug>"${this.originalProxy.urlQueryName || 'url'}"</debug> is used to specify the URL in the request. <blue>(?url=...)</blue>`);
+            Logger.debug(`The query name <debug>"${QUERY_NAME}"</debug> is used to specify the URL in the request. <blue>(?${QUERY_NAME}=...)</blue>`);
         }
 
         /* Format Selection Options */
@@ -150,29 +149,15 @@ class YtdlCore {
         this.highWaterMark = highWaterMark || undefined;
         this.IPv6Block = IPv6Block || undefined;
         this.dlChunkSize = dlChunkSize || undefined;
-        this.streamType = streamType || 'default';
 
-        if (!disableInitialSetup) {
-            this.setPoToken(poToken);
-            this.setVisitorData(visitorData);
-            this.setOAuth2(oauth2Credentials || null);
-
-            if (!this.disablePoTokenAutoGeneration) {
-                this.automaticallyGeneratePoToken();
-            }
-            this.initializeHtml5PlayerCache();
-        }
-
-        /* Version Check */
-        if (SHIM.runtime === 'default') {
-            if (!isNodeVersionOk(process.version)) {
-                throw new PlatformError(`You are using Node.js ${process.version} which is not supported. Minimum version required is v16.`);
-            }
-        } else if (SHIM.runtime === 'browser') {
-            if (!isBrowserVersionOk(navigator.userAgent)) {
-                throw new PlatformError(`The environment in which ytdl-core is currently running is not supported. ytdl-core has a minimum version that works with each browser due to limitations of the API it uses internally. Please see the README for details.`);
-            }
-        }
+        /* Async Initial setup */
+        this.init(
+            { disableInitialSetup, poToken, visitorData, oauth2Credentials },
+            {
+                originalProxy,
+                rewriteRequest,
+            },
+        );
 
         /* Load */
         SHIM.options.download = { hl: this.hl, gl: this.gl, rewriteRequest: this.rewriteRequest, poToken: this.poToken, disablePoTokenAutoGeneration: this.disablePoTokenAutoGeneration, visitorData: this.visitorData, includesPlayerAPIResponse: this.includesPlayerAPIResponse, includesNextAPIResponse: this.includesNextAPIResponse, includesOriginalFormatData: this.includesOriginalFormatData, includesRelatedVideo: this.includesRelatedVideo, clients: this.clients, disableDefaultClients: this.disableDefaultClients, oauth2Credentials, parsesHLSFormat: this.parsesHLSFormat, originalProxy: this.originalProxy, quality: this.quality, filter: this.filter, excludingClients: this.excludingClients, includingClients: this.includingClients, range: this.range, begin: this.begin, liveBuffer: this.liveBuffer, highWaterMark: this.highWaterMark, IPv6Block: this.IPv6Block, dlChunkSize: this.dlChunkSize };
@@ -180,6 +165,22 @@ class YtdlCore {
     }
 
     /* Setup */
+    private async init({ disableInitialSetup, poToken, visitorData, oauth2Credentials }: InitializationOptions, requestInit: YTDL_ProxyOptions = {}) {
+        if (!disableInitialSetup) {
+            const HTML5_PLAYER_PROMISE = this.initializeHtml5PlayerCache();
+
+            await this.setPoToken(poToken);
+            await this.setVisitorData(visitorData);
+            await this.setOAuth2(oauth2Credentials || null);
+
+            if (!this.disablePoTokenAutoGeneration) {
+                this.automaticallyGeneratePoToken(requestInit);
+            }
+
+            await HTML5_PLAYER_PROMISE;
+        }
+    }
+
     private async setPoToken(poToken?: string) {
         const PO_TOKEN_CACHE = await FileCache.get<string>('poToken');
 
@@ -222,8 +223,8 @@ class YtdlCore {
         }
     }
 
-    private initializeHtml5PlayerCache() {
-        const HTML5_PLAYER = FileCache.get<{ playerUrl: string }>('html5Player');
+    private async initializeHtml5PlayerCache() {
+        const HTML5_PLAYER = await FileCache.get<{ playerUrl: string }>('html5Player');
 
         if (!HTML5_PLAYER) {
             Logger.debug('To speed up processing, html5Player and signatureTimestamp are pre-fetched and cached.');
@@ -231,11 +232,11 @@ class YtdlCore {
         }
     }
 
-    private automaticallyGeneratePoToken() {
+    private automaticallyGeneratePoToken(requestInit: YTDL_ProxyOptions) {
         if (!this.poToken && !this.visitorData) {
             Logger.debug('Since PoToken and VisitorData are <warning>not specified</warning>, they are generated <info>automatically</info>.');
 
-            this.generatePoToken()
+            this.generatePoToken(requestInit)
                 .then(({ poToken, visitorData }) => {
                     this.poToken = poToken;
                     this.visitorData = visitorData;
@@ -262,6 +263,7 @@ class YtdlCore {
         INTERNAL_OPTIONS.includesRelatedVideo = options.includesRelatedVideo || this.includesRelatedVideo;
         INTERNAL_OPTIONS.clients = options.clients || this.clients;
         INTERNAL_OPTIONS.disableDefaultClients = options.disableDefaultClients || this.disableDefaultClients;
+        INTERNAL_OPTIONS.disableRetryRequest = options.disableRetryRequest || this.disableRetryRequest;
         INTERNAL_OPTIONS.oauth2Credentials = options.oauth2Credentials || this.oauth2?.getCredentials();
         INTERNAL_OPTIONS.parsesHLSFormat = options.parsesHLSFormat || this.parsesHLSFormat;
         INTERNAL_OPTIONS.originalProxy = options.originalProxy || this.originalProxy || undefined;
@@ -279,22 +281,19 @@ class YtdlCore {
         INTERNAL_OPTIONS.highWaterMark = options.highWaterMark || this.highWaterMark || undefined;
         INTERNAL_OPTIONS.IPv6Block = options.IPv6Block || this.IPv6Block || undefined;
         INTERNAL_OPTIONS.dlChunkSize = options.dlChunkSize || this.dlChunkSize || undefined;
-        INTERNAL_OPTIONS.streamType = options.streamType || this.streamType || 'default';
 
         if (!INTERNAL_OPTIONS.oauth2 && options.oauth2Credentials) {
-            Logger.warning('The OAuth2 token should be specified when instantiating the YtdlCore class, not as a function argument.');
-
             INTERNAL_OPTIONS.oauth2 = new OAuth2(options.oauth2Credentials);
         }
 
         return INTERNAL_OPTIONS;
     }
 
-    public generatePoToken(): Promise<{ poToken: string; visitorData: string }> {
+    public generatePoToken(requestInit: YTDL_ProxyOptions = {}): Promise<{ poToken: string; visitorData: string }> {
         return new Promise((resolve, reject) => {
             const generatePoToken = Platform.getShim().poToken;
 
-            generatePoToken()
+            generatePoToken(requestInit)
                 .then((data) => {
                     resolve(data);
                 })
@@ -305,11 +304,11 @@ class YtdlCore {
     }
 
     /** TIP: The options specified in new YtdlCore() are applied by default. (The function arguments specified will take precedence.) */
-    public download<T = YTDL_DefaultStreamType | YTDL_NodejsStreamType>(link: string, options: YTDL_DownloadOptions = {}): Promise<T extends YTDL_NodejsStreamType ? YTDL_NodejsStreamType : YTDL_DefaultStreamType> {
+    public download(link: string, options: YTDL_DownloadOptions = {}): Promise<ReadableStream> {
         return download(link, this.initializeOptions(options)) as any;
     }
     /** TIP: The options specified in new YtdlCore() are applied by default. (The function arguments specified will take precedence.) */
-    public downloadFromInfo<T = YTDL_DefaultStreamType | YTDL_NodejsStreamType>(info: YTDL_VideoInfo, options: YTDL_DownloadOptions = {}): Promise<T extends YTDL_NodejsStreamType ? YTDL_NodejsStreamType : YTDL_DefaultStreamType> {
+    public downloadFromInfo(info: YTDL_VideoInfo, options: YTDL_DownloadOptions = {}): Promise<ReadableStream> {
         return downloadFromInfo(info, this.initializeOptions(options)) as any;
     }
 

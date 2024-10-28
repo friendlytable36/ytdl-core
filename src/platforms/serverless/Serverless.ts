@@ -1,11 +1,14 @@
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { ReadableStream } from 'stream/web';
 
 import type { AvailableCacheFileNames, FileCacheOptions } from '@/platforms/types/FileCache';
 
 import { Platform } from '@/platforms/Platform';
 import { CacheWithMap, YtdlCore_Cache } from '@/platforms/utils/Classes';
+import { toPipeableStream } from '@/platforms/utils/Readable';
+import { evaluate } from '@/platforms/utils/Eval';
 
 import { VERSION, ISSUES_URL, USER_NAME, REPO_NAME } from '@/utils/Constants';
 import { Logger } from '@/utils/Log';
@@ -127,14 +130,10 @@ Platform.load({
     cache: new CacheWithMap(),
     fileCache: new FileCache(),
     fetcher: (url, options) => fetch(url, options),
-    poToken: () => {
-        return new Promise((resolve) => {
-            resolve({
-                poToken: '',
-                visitorData: '',
-            });
-        });
-    },
+    poToken: async () => ({
+        poToken: '',
+        visitorData: '',
+    }),
     options: {
         download: {
             hl: 'en',
@@ -143,7 +142,7 @@ Platform.load({
             includesNextAPIResponse: false,
             includesOriginalFormatData: false,
             includesRelatedVideo: true,
-            clients: ['web', 'webCreator', 'tvEmbedded', 'ios', 'android'],
+            clients: ['web', 'mweb', 'tv', 'ios'],
             disableDefaultClients: false,
             disableFileCache: false,
             parsesHLSFormat: true,
@@ -168,13 +167,14 @@ Platform.load({
         issuesUrl: ISSUES_URL,
     },
     polyfills: {
-        Headers,
-        ReadableStream,
+        Headers: Headers,
+        ReadableStream: ReadableStream as unknown as typeof globalThis.ReadableStream,
+        eval: evaluate,
     },
 });
 
 import { YtdlCore } from '@/YtdlCore';
 
 export * from '@/types/index';
-export { YtdlCore };
+export { YtdlCore, toPipeableStream };
 export default YtdlCore;

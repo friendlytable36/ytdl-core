@@ -24,20 +24,15 @@ type YTDL_ClientData = {
     };
 };
 
-type YTDL_ClientsParams = {
-    videoId: string;
-    signatureTimestamp: number;
-    options: InternalDownloadOptions;
-};
-
 import type { OAuth2 } from '@/core/OAuth2';
 import type { YTDL_ClientTypes } from '@/types';
-import { InternalDownloadOptions } from '@/core/types';
+import type { ClientsParams } from '@/core/types';
 
-import utils from './Utils';
-import { UserAgent } from './UserAgents';
+import utils from '@/utils/General';
+import { UserAgent } from '@/utils/UserAgents';
+import { Url } from '@/utils/Url';
 
-const INNERTUBE_BASE_API_URL = 'https://www.youtube.com/youtubei/v1',
+const INNERTUBE_BASE_API_URL = Url.getInnertubeBaseUrl(),
     INNERTUBE_CLIENTS: Record<YTDL_ClientTypes, YTDL_ClientData> = Object.freeze({
         web: {
             context: {
@@ -56,7 +51,7 @@ const INNERTUBE_BASE_API_URL = 'https://www.youtube.com/youtubei/v1',
             context: {
                 client: {
                     clientName: 'WEB_CREATOR',
-                    clientVersion: '1.20240723.03.00',
+                    clientVersion: '1.20240918.03.00',
                     userAgent: UserAgent.default,
                 },
             },
@@ -186,10 +181,10 @@ const INNERTUBE_BASE_API_URL = 'https://www.youtube.com/youtubei/v1',
 
 class Clients {
     static getAuthorizationHeader(oauth2?: OAuth2 | null) {
-        return oauth2 && oauth2.isEnabled ? { authorization: 'Bearer ' + oauth2.getAccessToken() } : {};
+        return oauth2 && oauth2.isEnabled ? { authorization: 'Bearer ' + oauth2.getAccessToken(), 'X-Goog-AuthUser': '0' } : {};
     }
 
-    static web({ videoId, signatureTimestamp, options: { poToken, visitorData, oauth2, hl, gl } }: YTDL_ClientsParams) {
+    static web({ videoId, signatureTimestamp, options: { poToken, visitorData, oauth2, hl, gl } }: ClientsParams) {
         const CLIENT = INNERTUBE_CLIENTS.web,
             PAYLOAD = { ...INNERTUBE_BASE_PAYLOAD };
 
@@ -222,7 +217,7 @@ class Clients {
         };
     }
 
-    static web_nextApi({ videoId, options: { poToken, visitorData, oauth2, hl, gl } }: YTDL_ClientsParams) {
+    static web_nextApi({ videoId, options: { poToken, visitorData, oauth2, hl, gl } }: ClientsParams) {
         const CLIENT = INNERTUBE_CLIENTS.web,
             PAYLOAD = { ...INNERTUBE_BASE_PAYLOAD, autonavState: 'STATE_OFF', playbackContext: { vis: 0, lactMilliseconds: '-1' }, captionsRequested: false };
 
@@ -254,7 +249,7 @@ class Clients {
         };
     }
 
-    static webCreator({ videoId, signatureTimestamp, options: { poToken, visitorData, hl, gl } }: YTDL_ClientsParams) {
+    static webCreator({ videoId, signatureTimestamp, options: { poToken, visitorData, oauth2, hl, gl } }: ClientsParams) {
         const CLIENT = INNERTUBE_CLIENTS.webCreator,
             PAYLOAD = { ...INNERTUBE_BASE_PAYLOAD };
 
@@ -282,11 +277,12 @@ class Clients {
                 'X-Youtube-Client-Version': CLIENT.context.client.clientVersion,
                 'X-Goog-Visitor-Id': visitorData,
                 'User-Agent': CLIENT.context.client.userAgent,
+                ...Clients.getAuthorizationHeader(oauth2),
             },
         };
     }
 
-    static webEmbedded({ videoId, signatureTimestamp, options: { poToken, visitorData, hl, gl } }: YTDL_ClientsParams) {
+    static webEmbedded({ videoId, signatureTimestamp, options: { poToken, visitorData, oauth2, hl, gl } }: ClientsParams) {
         const CLIENT = INNERTUBE_CLIENTS.webEmbedded,
             PAYLOAD = { ...INNERTUBE_BASE_PAYLOAD };
 
@@ -314,11 +310,12 @@ class Clients {
                 'X-Youtube-Client-Version': CLIENT.context.client.clientVersion,
                 'X-Goog-Visitor-Id': visitorData,
                 'User-Agent': CLIENT.context.client.userAgent,
+                ...Clients.getAuthorizationHeader(oauth2),
             },
         };
     }
 
-    static android({ videoId, signatureTimestamp, options: { poToken, visitorData, oauth2, hl, gl } }: YTDL_ClientsParams) {
+    static android({ videoId, signatureTimestamp, options: { poToken, visitorData, oauth2, hl, gl } }: ClientsParams) {
         const CLIENT = INNERTUBE_CLIENTS.android,
             PAYLOAD = { ...INNERTUBE_BASE_PAYLOAD };
 
@@ -351,7 +348,7 @@ class Clients {
         };
     }
 
-    static ios({ videoId, signatureTimestamp, options: { poToken, visitorData, oauth2, hl, gl } }: YTDL_ClientsParams) {
+    static ios({ videoId, signatureTimestamp, options: { poToken, visitorData, oauth2, hl, gl } }: ClientsParams) {
         const CLIENT = INNERTUBE_CLIENTS.ios,
             PAYLOAD = { ...INNERTUBE_BASE_PAYLOAD };
 
@@ -384,7 +381,7 @@ class Clients {
         };
     }
 
-    static mweb({ videoId, signatureTimestamp, options: { poToken, visitorData, oauth2, hl, gl } }: YTDL_ClientsParams) {
+    static mweb({ videoId, signatureTimestamp, options: { poToken, visitorData, oauth2, hl, gl } }: ClientsParams) {
         const CLIENT = INNERTUBE_CLIENTS.mweb,
             PAYLOAD = { ...INNERTUBE_BASE_PAYLOAD };
 
@@ -417,7 +414,7 @@ class Clients {
         };
     }
 
-    static tv({ videoId, signatureTimestamp, options: { poToken, visitorData, oauth2, hl, gl } }: YTDL_ClientsParams) {
+    static tv({ videoId, signatureTimestamp, options: { poToken, visitorData, oauth2, hl, gl } }: ClientsParams) {
         const CLIENT = INNERTUBE_CLIENTS.tv,
             PAYLOAD = { ...INNERTUBE_BASE_PAYLOAD };
 
@@ -450,7 +447,7 @@ class Clients {
         };
     }
 
-    static tvEmbedded({ videoId, signatureTimestamp, options: { poToken, visitorData, oauth2, hl, gl } }: YTDL_ClientsParams) {
+    static tvEmbedded({ videoId, signatureTimestamp, options: { poToken, visitorData, oauth2, hl, gl } }: ClientsParams) {
         const CLIENT = INNERTUBE_CLIENTS.tvEmbedded,
             PAYLOAD = { ...INNERTUBE_BASE_PAYLOAD };
 
@@ -484,5 +481,5 @@ class Clients {
     }
 }
 
-export type { YTDL_ClientsParams };
+export type { ClientsParams };
 export { Clients };

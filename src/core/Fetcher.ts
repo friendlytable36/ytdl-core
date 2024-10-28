@@ -22,7 +22,7 @@ class Fetcher {
                     const PARSED = new URL(originalProxy.base);
 
                     if (!url.includes(PARSED.host)) {
-                        url = `${PARSED.protocol}//${PARSED.host}/?url=${encodeURIComponent(url)}`;
+                        url = `${PARSED.protocol}//${PARSED.host}/?${originalProxy.urlQueryName || 'url'}=${encodeURIComponent(url)}`;
                     }
                 } catch {}
             }
@@ -67,7 +67,7 @@ class Fetcher {
             } catch {}
         }
 
-        const REQUEST_RESULTS = await this.fetch(
+        const REQUEST_RESULTS = await Fetcher.fetch(
                 url,
                 {
                     method: requestOptions?.method || 'GET',
@@ -88,7 +88,7 @@ class Fetcher {
 
             return REQUEST_RESULTS.text() as T;
         } else if (STATUS_CODE.startsWith('3') && LOCATION) {
-            return this.request(LOCATION.toString(), { requestOptions, rewriteRequest, originalProxy });
+            return Fetcher.request(LOCATION.toString(), { requestOptions, rewriteRequest, originalProxy });
         }
 
         const ERROR = new RequestError(`Status Code: ${STATUS_CODE}`, REQUEST_RESULTS.status);

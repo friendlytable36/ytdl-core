@@ -75,16 +75,10 @@ To use `@ybd-project/ytdl-core` without problems, **use Node.js 16 or higher.** 
 As usual, when using Node.js, as noted in the prerequisites, v16 or higher will work fine.
 If you have an example that does not work with 16 or higher versions, please create an [issue](https://github.com/ybd-project-ver1/ytdl-core/issues/new?assignees=&labels=bug&projects=&template=bug_report.md&title=).
 
-> [!NOTE]
-> If the Node.js version is less than v16, an error will occur when creating an instance of YtdlCore. To disable it, set the option `disableVersionCheck` to `true`. **(Deprecated)**
-
 ### Browser
 
 When using a browser, the latest version is preferred due to the API used.
 However, when operating a website or other site, it is unknown which version and browser the client will use, so the following are the main browsers (Chrome, Edge, Firefox, Brave, Opera, Safari) that are currently confirmed to work.
-
-> [!NOTE]
-> In `@ybd-project/ytdl-core`, if a browser is determined to be not in line with the following versions, an error will be raised when instantiating the YtdlCore class, stating that the version is not supported. To disable it, set the option `disableVersionCheck` to `true`. **(Deprecated)**
 
 #### List
 
@@ -131,7 +125,7 @@ Only a simple example is given in the README. For a list of options and other ad
 
 ```ts
 import fs from 'fs';
-import { YtdlCore } from '@ybd-project/ytdl-core';
+import { YtdlCore, toPipeableStream } from '@ybd-project/ytdl-core';
 // For browser: import { YtdlCore } from '@ybd-project/ytdl-core/browser';
 // For serverless functions: import { YtdlCore } from '@ybd-project/ytdl-core/serverless';
 
@@ -142,192 +136,12 @@ const ytdl = new YtdlCore({
 });
 
 // Download a video
-ytdl.download('https://www.youtube.com/watch?v=dQw4w9WgXcQ', {
-    streamType: 'nodejs', // Note: If you do not set the `streamType` to `nodejs`, a pipable stream will not be returned.
-}).then((stream) => stream.pipe(fs.createWriteStream('video.mp4')));
+ytdl.download('https://www.youtube.com/watch?v=dQw4w9WgXcQ').then((stream) => toPipeableStream(stream).pipe(fs.createWriteStream('video.mp4')));
 
 // Get video info
 ytdl.getBasicInfo('https://www.youtube.com/watch?v=dQw4w9WgXcQ').then((info) => {
     console.log(info.videoDetails.title);
 });
-```
-
-### OAuth2 Support
-
-`@ybd-project/ytdl-core` supports OAuth2 Token.
-
-These can be used to avoid age restrictions and bot errors. See below for instructions on how to use them.
-
-> [!IMPORTANT]
-> **Be sure to generate tokens with accounts that can be banned, as accounts may be banned.**
-> Note that OAuth2 may expire soon these days. In this case, do not use OAuth2.
-
-> [!NOTE]
-> The specified OAuth2 token is automatically updated by ytdl-core, so you do not need to update it yourself.
-
-```ts
-import { YtdlCore } from '@ybd-project/ytdl-core';
-
-/* Normal usage */
-const ytdl = new YtdlCore({
-    oauth2Credentials: {
-        accessToken: '...',
-        refreshToken: '...',
-        expiryDate: 'yyyy-MM-ddThh-mm-ssZ',
-    },
-});
-
-/* If you need to specify a client ID and secret */
-const ytdl = new YtdlCore({
-    oauth2Credentials: {
-        accessToken: '...',
-        refreshToken: '...',
-        expiryDate: 'yyyy-MM-ddThh-mm-ssZ',
-        clientData: {
-            clientId: '...',
-            clientSecret: '...',
-        },
-    },
-});
-
-/* Specify to the function if there is a need to override what was specified during class initialization. */
-// This `ytdl` is already initialized as in the other examples.
-ytdl.getFullInfo('https://www.youtube.com/watch?v=dQw4w9WgXcQ', {
-    oauth2Credentials: {
-        accessToken: '...',
-        refreshToken: '...',
-        expiryDate: 'yyyy-MM-ddThh-mm-ssZ',
-    },
-});
-```
-
-#### Oauth2 Access Token generation
-
-There are two recommended methods for generating OAuth2 tokens.
-
-1. Generate using [imputnet/cobalt](https://github.com/imputnet/cobalt)
-2. Generate using your own client ID and secret
-
-> [!TIP]
-> The method of production with cobalt is very stable and is recommended. Tokens generated using cobalt can be used in the normal way.
-
-> [!IMPORTANT]
-> If you generate it yourself, specify the client ID and secret in `clientData`. This is required to refresh the token.
-
-To generate tokens using Cobalt, execute the following command.
-
-```bash
-git clone https://github.com/imputnet/cobalt
-cd cobalt/api/src
-npm install -g pnpm
-pnpm install
-npm run token:youtube
-```
-
-If you wish to generate your own, please refer to the example folder for an example.
-
-### PoToken Support
-
-`@ybd-project/ytdl-core` supports `PoToken`.
-
-The `PoToken` can be used to avoid bot errors and must be specified with `VisitorData`. If you need to obtain `PoToken` or `VisitorData`, please use the following repository to generate them.
-
-1. https://github.com/iv-org/youtube-trusted-session-generator
-2. https://github.com/LuanRT/BgUtils
-3. https://github.com/fsholehan/scrape-youtube
-
-```ts
-import { YtdlCore } from '@ybd-project/ytdl-core';
-
-/* Basic Method */
-const ytdl = new YtdlCore({ poToken: 'PO_TOKEN', visitorData: 'VISITOR_DATA' });
-
-// PoToken, etc. specified at the time of class instantiation will be used.
-// PoToken used: PO_TOKEN
-ytdl.getFullInfo('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
-
-// Specified as function arguments take precedence over those specified at the time of class instantiation.
-// PoToken used: OVERRIDE_PO_TOKEN
-ytdl.getFullInfo('https://www.youtube.com/watch?v=dQw4w9WgXcQ', { poToken: 'OVERRIDE_PO_TOKEN', visitorData: 'OVERRIDE_VISITOR_DATA' });
-```
-
-#### Disable automatic PoToken generation
-
-The `PoToken` is automatically generated if not specified by default. To disable this, set the option `disablePoTokenAutoGeneration` to `true`.
-
-```ts
-import { YtdlCore } from '@ybd-project/ytdl-core';
-
-const ytdl = new YtdlCore({ disablePoTokenAutoGeneration: true });
-```
-
-### Proxy Support
-
-`@ybd-project/ytdl-core` supports proxies.
-
-> [!IMPORTANT]
-> Try PoToken or OAuth2 before using a proxy. These may have the same effect as proxies.
-
-Starting with v6.0.0, the `createProxyAgent` function and others are obsolete. Proxies must be implemented independently through the `fetcher` function.
-
-```ts
-import { YtdlCore } from '@ybd-project/ytdl-core';
-import { fetch, ProxyAgent } from 'undici';
-
-const AGENT = new ProxyAgent('http://xxx.xxx.xxx.xxx:PORT'),
-    ytdl = new YtdlCore({
-        fetcher: (url, options) => {
-            const REQUEST_OPTIONS: RequestInit = {
-                ...options,
-                dispatcher: AGENT,
-            };
-
-            return fetch(url, REQUEST_OPTIONS);
-        },
-    });
-
-ytdl.getFullInfo('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
-```
-
-#### Build and use your own proxy
-
-Using a proxy sold by one service may not work. In such cases, you can deploy your own proxy, e.g., to Cloudflare Workers.
-
-See the [example](https://github.com/ybd-project-ver1/ytdl-core/tree/main/examples/OriginalProxy/) for a proxy server implementation.
-
-##### Use of proprietary proxies
-
-```ts
-import { YtdlCore } from '@ybd-project/ytdl-core';
-
-const ytdl = new YtdlCore({
-    originalProxy: {
-        base: 'http://localhost:6543',
-        download: 'http://localhost:6543/video-download',
-        urlQueryName: 'apiUrl',
-    },
-});
-
-/* With rewriteRequest, you can specify various things. (e.g., random selection of multiple proxies) */
-const ytdl = new YtdlCore({
-    rewriteRequest: (url, options, { isDownloadUrl }) => {
-        if (isDownloadUrl) {
-            // URL is like: https://***.googlevideo.com/playbackvideo?...
-
-            return {
-                url: `https://your-video-proxy.server.com/?url=${encodeURIComponent(url)}`,
-                options,
-            };
-        }
-
-        return {
-            url: `https://your-proxy.server.com/?url=${encodeURIComponent(url)}`,
-            options,
-        };
-    },
-});
-
-ytdl.getFullInfo('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
 ```
 
 ## Examples
