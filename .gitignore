@@ -7,5 +7,5 @@ publish.txt
 /reference/*
 !/reference/*.bat
 /test/*
-!/test/main.test.ts
+!/test/*.test.*
 !/test/videoIds.ts

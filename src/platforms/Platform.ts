@@ -5,14 +5,15 @@ import { PlatformError } from '@/core/errors';
 import { Logger } from '@/utils/Log';
 
 import { YtdlCore_Cache } from './utils/Classes';
+import { YTDL_ProxyOptions } from '@/types';
 
-interface YtdlCore_Shim {
+type YtdlCore_Shim = {
     runtime: 'default' | 'browser' | 'serverless';
     server: boolean;
     cache: YtdlCore_Cache;
     fileCache: YtdlCore_Cache;
     fetcher: (url: URL | RequestInfo, options?: RequestInit) => Promise<Response>;
-    poToken: () => Promise<{ poToken: string; visitorData: string }>;
+    poToken: (requestInit?: YTDL_ProxyOptions) => Promise<{ poToken: string; visitorData: string }>;
     options: {
         download: YTDL_DownloadOptions;
         other: {
@@ -35,8 +36,9 @@ interface YtdlCore_Shim {
     polyfills: {
         Headers: typeof Headers;
         ReadableStream: typeof ReadableStream;
-    }
-}
+        eval: typeof eval;
+    };
+};
 
 export class Platform {
     static #shim: YtdlCore_Shim | undefined;

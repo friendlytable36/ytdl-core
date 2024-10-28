@@ -5,7 +5,7 @@ import { Signature } from '@/core/Signature';
 
 import { Platform } from '@/platforms/Platform';
 
-import Utils from '@/utils/Utils';
+import Utils from '@/utils/General';
 import { Url } from '@/utils/Url';
 import { FormatUtils } from '@/utils/Format';
 
@@ -19,7 +19,8 @@ const CACHE = Platform.getShim().cache,
 
 async function _getFullInfo(id: string, options: InternalDownloadOptions): Promise<YTDL_VideoInfo> {
     const HTML5_PLAYER_PROMISE = getHtml5Player(options),
-        INFO: YTDL_VideoInfo = await _getBasicInfo(id, options, true),
+        BASIC_INFO: YTDL_VideoInfo<YT_StreamingAdaptiveFormat> = await _getBasicInfo(id, options, true),
+        INFO: YTDL_VideoInfo = Object.assign({}, BASIC_INFO) as any,
         FUNCTIONS = [],
         HTML5_PLAYER = await HTML5_PLAYER_PROMISE;
 
@@ -29,7 +30,7 @@ async function _getFullInfo(id: string, options: InternalDownloadOptions): Promi
     }
 
     try {
-        const FORMATS = INFO.formats as unknown as Array<YT_StreamingAdaptiveFormat>;
+        const FORMATS = BASIC_INFO.formats;
 
         FUNCTIONS.push(SIGNATURE.decipherFormats(FORMATS));
         if (options.parsesHLSFormat && INFO._playerApiResponses?.ios) {

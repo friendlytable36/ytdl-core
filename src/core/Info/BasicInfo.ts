@@ -6,7 +6,7 @@ import { OAuth2 } from '@/core/OAuth2';
 import { Platform } from '@/platforms/Platform';
 
 import { Logger } from '@/utils/Log';
-import Utils from '@/utils/Utils';
+import Utils from '@/utils/General';
 import { Url } from '@/utils/Url';
 
 import { getHtml5Player } from './parser/Html5Player';
@@ -19,7 +19,7 @@ import { UnrecoverableError } from '../errors';
 /* Private Constants */
 const AGE_RESTRICTED_URLS = ['support.google.com/youtube/?p=age_restrictions', 'youtube.com/t/community_guidelines'],
     SUPPORTED_CLIENTS = ['web', 'webCreator', 'webEmbedded', 'ios', 'android', 'mweb', 'tv', 'tvEmbedded'],
-    BASE_CLIENTS: Array<YTDL_ClientTypes> = ['web', 'webCreator', 'tvEmbedded', 'ios', 'android'],
+    BASE_CLIENTS: Array<YTDL_ClientTypes> = ['web', 'mweb', 'tv', 'ios'],
     _SHIM = Platform.getShim(),
     CACHE = _SHIM.cache,
     BASE_INFO: YTDL_VideoInfo = {
@@ -75,8 +75,8 @@ const AGE_RESTRICTED_URLS = ['support.google.com/youtube/?p=age_restrictions', '
 /* ----------- */
 
 /* Private Functions */
-function setupClients(clients: Array<YTDL_ClientTypes>, disableDefaultClients: boolean): Array<YTDL_ClientTypes> {
-    if (clients && clients.length === 0) {
+function setupClients(clients: Array<YTDL_ClientTypes> | undefined, disableDefaultClients: boolean): Array<YTDL_ClientTypes> {
+    if (!clients || (clients && clients.length === 0)) {
         Logger.warning('At least one client must be specified.');
         clients = BASE_CLIENTS;
     }
@@ -92,7 +92,7 @@ function setupClients(clients: Array<YTDL_ClientTypes>, disableDefaultClients: b
 
 /* ----------- */
 
-async function _getBasicInfo(id: string, options: InternalDownloadOptions, isFromGetInfo: boolean): Promise<YTDL_VideoInfo> {
+async function _getBasicInfo(id: string, options: InternalDownloadOptions, isFromGetInfo: boolean): Promise<YTDL_VideoInfo<YT_StreamingAdaptiveFormat>> {
     const SHIM = Platform.getShim(),
         HTML5_PLAYER_PROMISE = getHtml5Player(options);
 
@@ -114,14 +114,10 @@ async function _getBasicInfo(id: string, options: InternalDownloadOptions, isFro
         Logger.warning('If you specify a poToken, you must also specify the visitorData.');
     }
 
-    options.clients = setupClients(options.clients || BASE_CLIENTS, options.disableDefaultClients ?? false);
+    options.clients = setupClients(options.clients, options.disableDefaultClients ?? false);
 
     const HTML5_PLAYER_RESPONSE = await HTML5_PLAYER_PROMISE,
         HTML5_PLAYER_URL = HTML5_PLAYER_RESPONSE.url;
-
-    if (!HTML5_PLAYER_URL) {
-        throw new UnrecoverableError(`HTML5Player was not found, please report it via Issues (${SHIM.info.issuesUrl}).`);
-    }
 
     /* Initialization */
     const SIGNATURE_TIMESTAMP = parseInt(HTML5_PLAYER_RESPONSE.signatureTimestamp || '0') || 0,
@@ -130,7 +126,7 @@ async function _getBasicInfo(id: string, options: InternalDownloadOptions, isFro
             signatureTimestamp: SIGNATURE_TIMESTAMP,
             options,
         },
-        VIDEO_INFO: YTDL_VideoInfo = JSON.parse(BASE_INFO_STRING);
+        VIDEO_INFO: YTDL_VideoInfo<YT_StreamingAdaptiveFormat> = JSON.parse(BASE_INFO_STRING);
 
     /* Request */
     const PROMISES = {
@@ -156,14 +152,18 @@ async function _getBasicInfo(id: string, options: InternalDownloadOptions, isFro
     }
 
     /** Filter out null values */
-    function getValue<T = unknown>(array: Array<any>, name: string, value?: string): T {
-        return array.filter((v) => v && v[name] && (value ? v[name] === value : true))[0] as T;
+    function getValue<T = unknown>(array: Array<any>, name: string, value?: string): T | undefined {
+        try {
+            return array.filter((v) => typeof v === 'object' && v !== null && v[name] && (value ? v[name] === value : true))[0] as T;
+        } catch {
+            return undefined;
+        }
     }
 
-    const INCLUDE_STORYBOARDS = getValue<YT_PlayerApiResponse>(PLAYER_RESPONSE_LIST, 'storyboards'),
-        VIDEO_DETAILS = (getValue<YT_PlayerApiResponse>(PLAYER_RESPONSE_LIST, 'videoDetails').videoDetails as YT_VideoDetails) || {},
-        MICROFORMAT = getValue<YT_PlayerApiResponse>(PLAYER_RESPONSE_LIST, 'microformat').microformat || null,
-        LIVE_BROADCAST_DETAILS = PLAYER_RESPONSES.web?.microformat?.playerMicroformatRenderer.liveBroadcastDetails || null;
+    const INCLUDE_STORYBOARDS = getValue<YT_PlayerApiResponse>(PLAYER_RESPONSE_LIST, 'storyboards') || null,
+        VIDEO_DETAILS = (getValue<YT_PlayerApiResponse>(PLAYER_RESPONSE_LIST, 'videoDetails')?.videoDetails as YT_VideoDetails) || {},
+        MICROFORMAT = getValue<YT_PlayerApiResponse>(PLAYER_RESPONSE_LIST, 'microformat')?.microformat || null,
+        LIVE_BROADCAST_DETAILS = PLAYER_RESPONSES.web?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails || null;
 
     /* Data Processing */
     const STORYBOARDS = InfoExtras.getStoryboards(INCLUDE_STORYBOARDS),
@@ -189,13 +189,15 @@ async function _getBasicInfo(id: string, options: InternalDownloadOptions, isFro
     VIDEO_INFO.videoDetails.liveBroadcastDetails = LIVE_BROADCAST_DETAILS;
 
     VIDEO_INFO.relatedVideos = options.includesRelatedVideo ? InfoExtras.getRelatedVideos(NEXT_RESPONSES.web) : [];
-    VIDEO_INFO.formats = isFromGetInfo ? (FORMATS as any) : [];
+    VIDEO_INFO.formats = FORMATS.filter(Boolean) as any;
 
     return VIDEO_INFO;
 }
 
-async function getBasicInfo(link: string, options: InternalDownloadOptions): Promise<YTDL_VideoInfo> {
-    Utils.checkForUpdates();
+async function getBasicInfo(link: string, options: InternalDownloadOptions): Promise<YTDL_VideoInfo<YT_StreamingAdaptiveFormat>> {
+    if (_SHIM.runtime !== 'serverless') {
+        Utils.checkForUpdates();
+    }
 
     const ID = Url.getVideoID(link) || (Url.validateID(link) ? link : null);
 
@@ -206,7 +208,7 @@ async function getBasicInfo(link: string, options: InternalDownloadOptions): Pro
     const CACHE_KEY = ['getBasicInfo', ID, options.hl, options.gl].join('-');
 
     if (await CACHE.has(CACHE_KEY)) {
-        return CACHE.get(CACHE_KEY) as Promise<YTDL_VideoInfo>;
+        return CACHE.get(CACHE_KEY) as Promise<YTDL_VideoInfo<YT_StreamingAdaptiveFormat>>;
     }
 
     const RESULTS = await _getBasicInfo(ID, options, false);

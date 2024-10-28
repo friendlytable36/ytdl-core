@@ -1,6 +1,8 @@
 import { JSDOM } from 'jsdom';
 import { BG, BgConfig } from 'bgutils-js';
-import fetch from 'node-fetch';
+import { fetch } from 'undici';
+
+import { YTDL_ProxyOptions } from '@/types/index.js';
 
 import NextApi from '@/core/Info/apis/Next.js';
 import { Logger } from '@/utils/Log.js';
@@ -18,26 +20,60 @@ Object.assign(globalThis, {
     document: DOM.window.document,
 });
 
-function initialization() {
-    NextApi.default
-        .getApiResponses({
-            videoId: 'dQw4w9WgXcQ',
-            signatureTimestamp: 0,
-            options: {
-                oauth2: null,
-            },
-        })
-        .then((data) => {
-            BG_CONFIG.identifier = data.web?.responseContext.visitorData || '';
-            Logger.debug('[ PoToken ]: VisitorData was <success>successfully</success> retrieved.');
-        })
-        .catch(() => {
-            Logger.debug('[ PoToken ]: <error>Failed</error> to retrieve VisitorData.');
-        });
+function initialization({ originalProxy, rewriteRequest }: YTDL_ProxyOptions) {
+    return new Promise((resolve) => {
+        NextApi.default
+            .getApiResponses({
+                videoId: 'dQw4w9WgXcQ',
+                signatureTimestamp: 0,
+                options: {
+                    oauth2: null,
+                    originalProxy,
+                    rewriteRequest,
+                },
+            })
+            .then((data) => {
+                BG_CONFIG.identifier = data.web?.responseContext.visitorData || '';
+                Logger.debug('[ PoToken ]: VisitorData was <success>successfully</success> retrieved.');
+            })
+            .catch(() => {
+                Logger.debug('[ PoToken ]: <error>Failed</error> to retrieve VisitorData.');
+            })
+            .finally(() => resolve(0));
+    });
 }
 
-function generatePoToken(): Promise<{ poToken: string; visitorData: string }> {
+function generatePoToken(requestInit?: YTDL_ProxyOptions): Promise<{ poToken: string; visitorData: string }> {
     return new Promise(async (resolve) => {
+        const { originalProxy, rewriteRequest } = requestInit || {};
+
+        await initialization({ originalProxy, rewriteRequest });
+
+        BG_CONFIG.fetch = (url, options: any) => {
+            url = url.toString();
+
+            if (typeof rewriteRequest === 'function') {
+                const { url: newUrl, options: newOptions } = rewriteRequest(url, options || {}, {
+                    isDownloadUrl: false,
+                });
+
+                url = newUrl;
+                options = newOptions;
+            }
+
+            if (originalProxy) {
+                try {
+                    const PARSED = new URL(originalProxy.base);
+
+                    if (!url.includes(PARSED.host)) {
+                        url = `${PARSED.protocol}//${PARSED.host}/?${originalProxy.urlQueryName || 'url'}=${encodeURIComponent(url)}`;
+                    }
+                } catch {}
+            }
+
+            return fetch(url, options) as any;
+        };
+
         if (!BG_CONFIG.identifier) {
             resolve({
                 poToken: '',
@@ -83,7 +119,5 @@ function generatePoToken(): Promise<{ poToken: string; visitorData: string }> {
         });
     });
 }
-
-initialization();
 
 export { generatePoToken };

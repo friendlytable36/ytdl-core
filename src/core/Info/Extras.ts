@@ -384,7 +384,7 @@ export default class InfoExtras {
     }
 
     static getStoryboards(info: YT_PlayerApiResponse | null): Array<YTDL_Storyboard> {
-        if (!info) {
+        if (!info || !info.storyboards) {
             return [];
         }
 

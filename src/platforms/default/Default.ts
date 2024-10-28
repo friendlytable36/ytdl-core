@@ -2,11 +2,12 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { ReadableStream } from 'stream/web';
-import fetch from 'node-fetch';
-import { Headers } from 'headers-polyfill';
+import { fetch, Headers } from 'undici';
 
 import { Platform } from '@/platforms/Platform';
 import { CacheWithMap, YtdlCore_Cache } from '@/platforms/utils/Classes';
+import { toPipeableStream } from '@/platforms/utils/Readable';
+import { evaluate } from '@/platforms/utils/Eval';
 import { AvailableCacheFileNames, FileCacheOptions } from '@/platforms/types/FileCache';
 
 import { VERSION, ISSUES_URL, USER_NAME, REPO_NAME } from '@/utils/Constants';
@@ -144,7 +145,10 @@ Platform.load({
     cache: new CacheWithMap(),
     fileCache: new FileCache(),
     fetcher: fetch as unknown as typeof globalThis.fetch,
-    poToken: () => Promise.resolve({ poToken: '', visitorData: '' }),
+    poToken: async () => ({
+        poToken: '',
+        visitorData: '',
+    }),
     options: {
         download: {
             hl: 'en',
@@ -153,7 +157,7 @@ Platform.load({
             includesNextAPIResponse: false,
             includesOriginalFormatData: false,
             includesRelatedVideo: true,
-            clients: ['web', 'webCreator', 'tvEmbedded', 'ios', 'android'],
+            clients: ['web', 'mweb', 'tv', 'ios'],
             disableDefaultClients: false,
             disableFileCache: false,
             parsesHLSFormat: true,
@@ -180,11 +184,19 @@ Platform.load({
     polyfills: {
         Headers: Headers as unknown as typeof globalThis.Headers,
         ReadableStream: ReadableStream as unknown as typeof globalThis.ReadableStream,
+        eval: evaluate,
     },
 });
 
+const IS_NODE_VERSION_OK = parseInt(process.version.replace('v', '').split('.')[0]) >= 16;
+
+if (!IS_NODE_VERSION_OK) {
+    throw new PlatformError(`You are using Node.js ${process.version} which is not supported. Minimum version required is v16.`);
+}
+
 import { YtdlCore } from '@/YtdlCore';
+import { PlatformError } from '@/core/errors';
 
 export * from '@/types/index';
-export { YtdlCore };
+export { YtdlCore, toPipeableStream };
 export default YtdlCore;

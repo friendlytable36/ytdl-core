@@ -10,7 +10,6 @@ on:
 jobs:
     update-player-data:
         runs-on: ubuntu-latest
-        if: github.ref == 'refs/heads/dev' # devブランチでのみ実行
 
         steps:
             - uses: actions/checkout@v3

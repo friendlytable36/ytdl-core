@@ -1,10 +1,9 @@
 const express = require('express'),
-    { YtdlCore } = require('@ybd-project/ytdl-core'),
+    { YtdlCore, toPipeableStream } = require('@ybd-project/ytdl-core'),
     app = express(),
     ytdl = new YtdlCore({
         hl: 'en',
         gl: 'US',
-        streamType: 'nodejs',
     });
 
 app.get('/api/download', (req, res) => {
@@ -17,7 +16,7 @@ app.get('/api/download', (req, res) => {
         filter: 'audioandvideo',
     })
         .then((stream) => {
-            stream.pipe(res);
+            toPipeableStream(stream).pipe(res);
         })
         .catch((err) => {
             res.json({
@@ -36,7 +35,7 @@ app.get('/api/download/audio', (req, res) => {
         filter: 'audioonly',
     })
         .then((stream) => {
-            stream.pipe(res);
+            toPipeableStream(stream).pipe(res);
         })
         .catch((err) => {
             res.json({
@@ -55,7 +54,7 @@ app.get('/api/download', (req, res) => {
         filter: 'videoonly',
     })
         .then((stream) => {
-            stream.pipe(res);
+            toPipeableStream(stream).pipe(res);
         })
         .catch((err) => {
             res.json({

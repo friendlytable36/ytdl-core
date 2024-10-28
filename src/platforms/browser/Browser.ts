@@ -95,14 +95,10 @@ Platform.load({
     cache: new CacheWithCacheStorage(),
     fileCache: new CacheWithCacheStorage(),
     fetcher: (url, options) => fetch(url, options),
-    poToken: () => {
-        return new Promise((resolve) => {
-            resolve({
-                poToken: '',
-                visitorData: '',
-            });
-        });
-    },
+    poToken: async () => ({
+        poToken: '',
+        visitorData: '',
+    }),
     options: {
         download: {
             hl: 'en',
@@ -111,7 +107,7 @@ Platform.load({
             includesNextAPIResponse: false,
             includesOriginalFormatData: false,
             includesRelatedVideo: true,
-            clients: ['web', 'webCreator', 'tvEmbedded', 'ios', 'android'],
+            clients: ['web', 'mweb', 'tv', 'ios'],
             disableDefaultClients: false,
             disableFileCache: false,
             parsesHLSFormat: true,
@@ -138,6 +134,7 @@ Platform.load({
     polyfills: {
         Headers,
         ReadableStream,
+        eval,
     },
 });
 

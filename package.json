@@ -1,6 +1,6 @@
 {
     "name": "@ybd-project/ytdl-core",
-    "version": "6.0.4",
+    "version": "6.0.5",
     "description": "YBD Project fork of ytdl-core.",
     "author": "YBD Project",
     "repository": {
@@ -36,7 +36,7 @@
         },
         "./browser.bundle": {
             "types": "./package/platforms/Browser/Browser.d.ts",
-            "default": "./bundle/browser.js"
+            "default": "./bundle/browser.min.js"
         },
         "./serverless": {
             "types": "./package/platforms/Serverless/Serverless.d.ts",
@@ -63,35 +63,27 @@
         "publish:npm-alpha": "node ./scripts/publish.mjs alpha && npm run build && npm publish --registry=https://registry.npmjs.org/ --tag alpha",
         "publish:npm-beta": "node ./scripts/publish.mjs beta && npm run build && npm publish --registry=https://registry.npmjs.org/ --tag beta",
         "create-bundles": "npm run create-node-bundle && npm run create-browser-bundle && npm run create-serverless-bundle",
-        "create-node-bundle": "rmdir /s /q bundle & mkdir bundle && esbuild ./package/platforms/Default/Default.js --bundle --target=node16 --keep-names --format=cjs --platform=node --outfile=./bundle/node.cjs --banner:js=\"/* eslint-disable */\" --minify",
-        "create-browser-bundle": "esbuild ./package/platforms/Browser/Browser.js --banner:js=\"/* eslint-disable */\" --bundle --target=chrome70 --keep-names --format=esm --define:global=globalThis --conditions=module --outfile=./bundle/browser.js --platform=browser --minify",
-        "create-serverless-bundle": "esbuild ./package/platforms/Serverless/Serverless.js --bundle --target=node16 --keep-names --format=cjs --platform=node --outfile=./bundle/serverless.cjs --banner:js=\"/* eslint-disable */\" --minify",
+        "create-node-bundle": "rmdir /s /q bundle & mkdir bundle && esbuild ./package/platforms/Default/Default.js --bundle --target=node16 --keep-names --format=cjs --platform=node --outfile=./bundle/node.cjs --minify",
+        "create-browser-bundle": "node ./scripts/createBrowserBundle.mjs",
+        "create-serverless-bundle": "esbuild ./package/platforms/Serverless/Serverless.js --bundle --target=node16 --keep-names --format=cjs --platform=node --outfile=./bundle/serverless.cjs --minify",
         "update": "ncu && ncu -u && npm i",
         "deleteNodeModules:examples": "node ./scripts/deleteExamplesNodeModules.js"
     },
     "dependencies": {
         "bgutils-js": "^3.0.0",
-        "headers-polyfill": "^4.0.3",
         "jsdom": "^25.0.1",
-        "node-fetch": "^2.7.0",
-        "readable-stream": "^4.5.2",
-        "sax": "^1.4.1",
-        "ua-parser-js": "^1.0.39",
-        "web-streams-polyfill": "^4.0.0"
+        "undici": "^6.20.1"
     },
     "devDependencies": {
         "@inquirer/prompts": "^7.0.0",
         "@types/jest": "^29.5.13",
         "@types/jsdom": "^21.1.7",
-        "@types/node": "^22.7.5",
-        "@types/readable-stream": "^4.0.15",
+        "@types/node": "^22.7.7",
         "@types/sax": "^1.2.7",
-        "@types/ua-parser-js": "^0.7.39",
-        "@types/whatwg-fetch": "^0.0.33",
         "esbuild": "^0.24.0",
-        "eslint": "^9.12.0",
+        "eslint": "^9.13.0",
         "jest": "^29.7.0",
-        "npm-check-updates": "^17.1.3",
+        "npm-check-updates": "^17.1.4",
         "ts-jest": "^29.2.5",
         "tsc-alias": "^1.8.10",
         "typescript": "^5.6.3"

@@ -1,7 +1,6 @@
 import { YT_StreamingAdaptiveFormat } from '@/types';
 
 import { Platform } from '@/platforms/Platform';
-import Jinter from '@/dependencies/Jinter';
 
 import { Logger } from '@/utils/Log';
 
@@ -156,13 +155,11 @@ function extractNTransformWithName(body: string): string | null {
 
 /* Eval, Reference: LuanRT/YouTube.js - jintr.ts */
 function runInNewContext(code: string, contextObject = {}) {
-    const RUNTIME = new Jinter();
+    const CONTEXT = Object.entries(contextObject)
+        .map(([x, y]: any) => (y.includes('YBDProject') ? `var ${x}=${y};` : `var ${x}="${y}";`))
+        .join('');
 
-    for (const [KEY, VALUE] of Object.entries(contextObject)) {
-        RUNTIME.scope.set(KEY, VALUE);
-    }
-
-    return RUNTIME.evaluate(code);
+    return SHIM.polyfills.eval(CONTEXT + code);
 }
 
 /* Decipher */
@@ -202,13 +199,18 @@ function setDownloadURL(format: YT_StreamingAdaptiveFormat, decipherFunction: st
                 return url;
             }
 
-            const CONTEXT: Record<string, string> = {};
+            try {
+                const CONTEXT: Record<string, string> = {};
 
-            CONTEXT[N_ARGUMENT] = N;
+                CONTEXT[N_ARGUMENT] = N;
 
-            COMPONENTS.searchParams.set('n', runInNewContext(nTransformFunction, CONTEXT));
+                COMPONENTS.searchParams.set('n', runInNewContext(nTransformFunction, CONTEXT));
 
-            return COMPONENTS.toString();
+                return COMPONENTS.toString();
+            } catch (err) {
+                Logger.debug(`[ NTransform ]: <error>Failed</error> to transform N: <error>${err}</error>`);
+                return url;
+            }
         },
         CIPHER = !format.url,
         VIDEO_URL = format.url || format.signatureCipher || format.cipher;
@@ -238,6 +240,11 @@ class Signature {
         }
 
         return '0';
+    }
+
+    public decipherFormat(format: YT_StreamingAdaptiveFormat): YT_StreamingAdaptiveFormat {
+        setDownloadURL(format, this.decipherFunction, this.nTransformFunction);
+        return format;
     }
 
     public decipherFormats(formats: Array<YT_StreamingAdaptiveFormat>): Record<string, YT_StreamingAdaptiveFormat> {

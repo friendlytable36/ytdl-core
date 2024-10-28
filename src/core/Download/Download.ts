@@ -1,7 +1,6 @@
-import { Readable } from 'readable-stream';
 import type { PassThrough } from 'stream';
 
-import type { YTDL_ClientTypes, YTDL_DefaultStreamType, YTDL_NodejsStreamType, YTDL_VideoFormat, YTDL_VideoInfo } from '@/types';
+import type { YTDL_ClientTypes, YTDL_VideoFormat, YTDL_VideoInfo } from '@/types';
 import { InternalDownloadOptions } from '@/core/types';
 
 import { getFullInfo } from '@/core/Info';
@@ -23,7 +22,31 @@ const DOWNLOAD_REQUEST_OPTIONS: RequestInit = {
     },
     ReadableStream = Platform.getShim().polyfills.ReadableStream;
 
-async function isDownloadUrlValid(format: YTDL_VideoFormat): Promise<{ valid: boolean; reason?: string }> {
+function requestSetup(url: string, requestOptions: any, options: InternalDownloadOptions): string {
+    if (typeof options.rewriteRequest === 'function') {
+        const { url: newUrl } = options.rewriteRequest(url, requestOptions, {
+            isDownloadUrl: true,
+        });
+
+        url = newUrl;
+    }
+
+    if (options.originalProxy) {
+        try {
+            const PARSED = new URL(options.originalProxy.download);
+
+            if (!url.includes(PARSED.host)) {
+                url = `${PARSED.protocol}//${PARSED.host}${PARSED.pathname}?${options.originalProxy.urlQueryName || 'url'}=${encodeURIComponent(url)}`;
+            }
+        } catch (err) {
+            Logger.debug('[ OriginalProxy ]: The original proxy could not be adapted due to the following error: ' + err);
+        }
+    }
+
+    return url;
+}
+
+async function isDownloadUrlValid(format: YTDL_VideoFormat, options: InternalDownloadOptions): Promise<{ valid: boolean; reason?: string }> {
     return new Promise((resolve) => {
         const successResponseHandler = (res: Response) => {
                 if (res.status === 200) {
@@ -39,8 +62,10 @@ async function isDownloadUrlValid(format: YTDL_VideoFormat): Promise<{ valid: bo
             };
 
         try {
+            const TEST_URL = requestSetup(format.url, {}, options);
+
             Platform.getShim()
-                .fetcher(format.url, {
+                .fetcher(TEST_URL, {
                     method: 'HEAD',
                 })
                 .then(
@@ -74,7 +99,7 @@ function getValidDownloadUrl(formats: YTDL_VideoInfo['formats'], options: Intern
                 throw new Error('Failed to retrieve format data.');
             }
 
-            const { valid, reason } = await isDownloadUrlValid(format);
+            const { valid, reason } = await isDownloadUrlValid(format, options);
 
             if (valid) {
                 isOk = true;
@@ -101,7 +126,7 @@ function getValidDownloadUrl(formats: YTDL_VideoInfo['formats'], options: Intern
 }
 
 /** Reference: LuanRT/YouTube.js - Utils.ts */
-export async function* streamToIterable(stream: ReadableStream<Uint8Array> | PassThrough) {
+async function* streamToIterable(stream: ReadableStream<Uint8Array> | PassThrough) {
     if (stream instanceof ReadableStream) {
         const READER = stream.getReader();
 
@@ -129,27 +154,7 @@ export async function* streamToIterable(stream: ReadableStream<Uint8Array> | Pas
 }
 
 function downloadVideo(videoUrl: string, requestOptions: any, options: InternalDownloadOptions, cancel?: AbortController): Promise<Response> {
-    /* Request Setup */
-    if (options.rewriteRequest) {
-        const { url, options: reqOptions } = options.rewriteRequest(videoUrl, requestOptions, {
-            isDownloadUrl: true,
-        });
-
-        videoUrl = url;
-        requestOptions = reqOptions;
-    }
-
-    if (options.originalProxy) {
-        try {
-            const PARSED = new URL(options.originalProxy.download);
-
-            if (!videoUrl.includes(PARSED.host)) {
-                videoUrl = `${PARSED.protocol}//${PARSED.host}${PARSED.pathname}?${options.originalProxy.urlQueryName || 'url'}=${encodeURIComponent(videoUrl)}`;
-            }
-        } catch (err) {
-            Logger.debug('[ OriginalProxy ]: The original proxy could not be adapted due to the following error: ' + err);
-        }
-    }
+    videoUrl = requestSetup(videoUrl, requestOptions, options);
 
     Logger.debug('[ Download ]: Requesting URL: <magenta>' + videoUrl + '</magenta>');
 
@@ -157,9 +162,7 @@ function downloadVideo(videoUrl: string, requestOptions: any, options: InternalD
     return Platform.getShim().fetcher(videoUrl, OPTIONS);
 }
 
-async function downloadFromInfoCallback(info: YTDL_VideoInfo, options: InternalDownloadOptions & { streamType: 'default' }): Promise<ReadableStream>;
-async function downloadFromInfoCallback(info: YTDL_VideoInfo, options: InternalDownloadOptions & { streamType: 'nodejs' }): Promise<Readable>;
-async function downloadFromInfoCallback(info: YTDL_VideoInfo, options: InternalDownloadOptions): Promise<YTDL_DefaultStreamType | YTDL_NodejsStreamType> {
+async function downloadFromInfoCallback(info: YTDL_VideoInfo, options: InternalDownloadOptions): Promise<ReadableStream> {
     if (!info.formats.length) {
         throw new Error('This video is not available due to lack of video format.');
     }
@@ -195,11 +198,7 @@ async function downloadFromInfoCallback(info: YTDL_VideoInfo, options: InternalD
             throw new Error('Failed to retrieve response body.');
         }
 
-        if (options.streamType === 'nodejs') {
-            return Readable.from(streamToIterable(BODY));
-        } else {
-            return BODY;
-        }
+        return BODY;
     }
 
     const READABLE_STREAM = new ReadableStream(
@@ -257,34 +256,22 @@ async function downloadFromInfoCallback(info: YTDL_VideoInfo, options: InternalD
         },
     );
 
-    if (options.streamType === 'nodejs') {
-        return Readable.from(streamToIterable(READABLE_STREAM));
-    } else {
-        return READABLE_STREAM;
-    }
+    return READABLE_STREAM;
 }
 
-async function downloadFromInfo(info: YTDL_VideoInfo, options: InternalDownloadOptions): Promise<YTDL_DefaultStreamType | YTDL_NodejsStreamType> {
+async function downloadFromInfo(info: YTDL_VideoInfo, options: InternalDownloadOptions): Promise<ReadableStream> {
     if (!info.full) {
         throw new Error('Cannot use `ytdl.downloadFromInfo()` when called with info from `ytdl.getBasicInfo()`');
     }
 
-    if (options.streamType === 'nodejs') {
-        return await downloadFromInfoCallback(info, { ...options, streamType: 'nodejs' });
-    } else {
-        return await downloadFromInfoCallback(info, { ...options, streamType: 'default' });
-    }
+    return await downloadFromInfoCallback(info, { ...options });
 }
 
-function download(link: string, options: InternalDownloadOptions): Promise<YTDL_DefaultStreamType | YTDL_NodejsStreamType> {
-    return new Promise<YTDL_DefaultStreamType | YTDL_NodejsStreamType>((resolve) => {
+function download(link: string, options: InternalDownloadOptions): Promise<ReadableStream> {
+    return new Promise<ReadableStream>((resolve) => {
         getFullInfo(link, options)
             .then((info) => {
-                if (options.streamType === 'nodejs') {
-                    resolve(downloadFromInfoCallback(info, { ...options, streamType: 'nodejs' }));
-                } else {
-                    resolve(downloadFromInfoCallback(info, { ...options, streamType: 'default' }));
-                }
+                resolve(downloadFromInfoCallback(info, { ...options }));
             })
             .catch((err) => {
                 throw err;
