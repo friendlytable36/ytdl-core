@@ -1,8 +1,12 @@
+version: 1
 services:
   - type: web
-    name: ybdikerukana
-    env: python
-    region: Oregon
+    name:ybdiketekure
+    env: node
     plan: free
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "uvicorn --port $PORT --host 0.0.0.0 app"
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 16
